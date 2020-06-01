@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_icons/flutter_icons.dart';
 import 'package:geocoder/geocoder.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:maps_ola/drop_location_screen.dart';
 import 'package:maps_ola/location_details.dart';
 import 'package:maps_ola/location_result.dart';
 import 'package:maps_ola/uuid.dart';
@@ -91,6 +93,11 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  moveCamera(LatLng latLng) {
+    _googleMapController.animateCamera(CameraUpdate.newCameraPosition(
+        CameraPosition(zoom: 18.0, tilt: 70.0, bearing: 180, target: latLng)));
+  }
+
   _onSearchChangedDrop() {
     if (_debounce?.isActive ?? false) _debounce.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
@@ -130,7 +137,7 @@ class _HomePageState extends State<HomePage> {
         List<dynamic> predictions = data['predictions'];
         allLocations.clear();
         if (predictions.isEmpty) {
-          setState(() => searchVal = "No resutl found");
+          setState(() => searchVal = "No result found");
         } else {
           for (dynamic single in predictions) {
             LocationDetails detail = LocationDetails(
@@ -144,21 +151,16 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void decodeAndSelectPlace(String placeId) {
+  Future<LatLng> decodeAndSelectPlace(String placeId) async {
     String endpoint =
         "https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=$googleMapsAPIKeys";
 
-    http.get(endpoint).then((response) {
-      if (response.statusCode == 200) {
-        print(jsonDecode(response.body));
-        Map<String, dynamic> location =
-            jsonDecode(response.body)['result']['geometry']['location'];
-        LatLng latLng = LatLng(location['lat'], location['lng']);
-        print(latLng);
-      }
-    }).catchError((error) {
-      print(error);
-    });
+    http.Response response = await http.get(endpoint);
+    print(jsonDecode(response.body));
+    Map<String, dynamic> location =
+        jsonDecode(response.body)['result']['geometry']['location'];
+    LatLng latLng = LatLng(location['lat'], location['lng']);
+    return latLng;
   }
 
   @override
@@ -286,6 +288,22 @@ class _HomePageState extends State<HomePage> {
                       const EdgeInsets.symmetric(vertical: 50, horizontal: 20),
                   child: Column(
                     children: <Widget>[
+                      Align(
+                          alignment: Alignment.topLeft,
+                          child: Row(
+                            children: <Widget>[
+                              Icon(Octicons.primitive_dot, color: Colors.green),
+                              Text(
+                                  _pickFocusNode.hasFocus == true
+                                      ? "Pick Up Location"
+                                      : "Drop Location",
+                                  style: TextStyle(
+                                      fontSize: 16.0,
+                                      color: Colors.black,
+                                      fontWeight: FontWeight.bold))
+                            ],
+                          )),
+                      SizedBox(height: 20),
                       TextField(
                         controller: _pickUpController,
                         focusNode: _pickFocusNode,
@@ -311,6 +329,12 @@ class _HomePageState extends State<HomePage> {
                         controller: _destinationController,
                         style: TextStyle(color: Colors.black, fontSize: 16.0),
                         decoration: InputDecoration(
+                            suffixIcon: IconButton(
+                                onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                        builder: (context) =>
+                                            DropLocationMap())),
+                                icon: Icon(Icons.location_on)),
                             prefixIcon: IconButton(
                               icon: Icon(Icons.my_location),
                               onPressed: () =>
@@ -348,6 +372,17 @@ class _HomePageState extends State<HomePage> {
                                             blurRadius: 14.0)
                                       ]),
                                   child: ListTile(
+                                    onTap: () async {
+                                      _controller.close();
+                                      LatLng getLatLng =
+                                          await decodeAndSelectPlace(
+                                              detail.locationID);
+                                      if (getLatLng != null) {
+                                        moveCamera(getLatLng);
+                                      } else {
+                                        print(getLatLng);
+                                      }
+                                    },
                                     title: Text(detail.locationAddress),
                                   ),
                                 ),
@@ -366,6 +401,7 @@ class _HomePageState extends State<HomePage> {
               : Stack(
                   children: <Widget>[
                     GoogleMap(
+                      buildingsEnabled: true,
                       polylines: _polyLines,
                       mapType: MapType.normal,
                       initialCameraPosition: CameraPosition(
